@@ -7,12 +7,17 @@ use std::{
 
 use thiserror::Error;
 
+/// A reference to a [`NamespacedId`], akin to a `str`.
+///
+/// This is identical to `str` in every way, except that it has the invariant of being a valid
+/// [`NamespacedId`] (see [`Self::try_from_str`] for the requirements).
 #[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct NamespacedIdRef {
     inner: str,
 }
 
+// TODO: better error messages (make into a proc macro)
 #[macro_export]
 macro_rules! ident {
     ($str:literal $(,)?) => {
@@ -26,11 +31,43 @@ macro_rules! ident {
 }
 
 impl NamespacedIdRef {
+    /// Gets the string representation of this id.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::ident;
+    ///
+    /// let id = ident!("namespace:id");
+    /// assert_eq!("namespace:id", id.as_str());
+    /// ```
     #[must_use]
     pub const fn as_str(&self) -> &str {
         &self.inner
     }
 
+    /// Losslessly converts `string` into a [`NamespacedIdRef`], or returns [`Err`] if it is not a
+    /// valid id.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::NamespacedIdRef;
+    ///
+    /// let id = NamespacedIdRef::try_from_str("namespace:id")
+    ///     .expect("id should be valid");
+    /// assert_eq!("namespace:id", id.as_str());
+    ///
+    /// let id_res = NamespacedIdRef::try_from_str("invalid_id");
+    /// assert!(id_res.is_err());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`ParseError::ExpectedNamespace`] if `string` has no namespace (is empty).
+    /// - [`ParseError::ExpectedId`] if `string` has no id (has no separator).
+    /// - [`ParseError::TooManySeparators`] if `string` has too many colons.
+    /// - [`ParseError::UnexpectedWhitespace`] if `string` has any whitespace.
     pub const fn try_from_str(string: &str) -> Result<&Self, ParseError> {
         if let Err(err) = validate(string) {
             return Err(err);
@@ -39,6 +76,20 @@ impl NamespacedIdRef {
         Ok(Self::from_str_unchecked(string))
     }
 
+    /// Converts `string` into a [`NamespacedIdRef`] without checking if it is a valid id.
+    ///
+    /// Note that this may cause panics down the line if the id is not valid, but it won't cause
+    /// any undefined behavior.
+    ///
+    /// # Examples
+    ///
+    /// ```should_panic
+    /// use namespaced_id::NamespacedIdRef;
+    ///
+    /// let id = NamespacedIdRef::from_str_unchecked("invalid_id");
+    /// // panics here, as `id` is invalid (and so it doesn't have an id)
+    /// let _ = id.id();
+    /// ```
     #[must_use]
     pub const fn from_str_unchecked(string: &str) -> &Self {
         // SAFETY: NamespacedIdRef is #[repr(transparent)]
@@ -46,6 +97,15 @@ impl NamespacedIdRef {
         unsafe { &*(std::ptr::from_ref(string) as *const Self) }
     }
 
+    /// Returns the portion of the id before the colon.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::ident;
+    ///
+    /// assert_eq!("namespace", ident!("namespace:id").namespace());
+    /// ```
     #[must_use]
     pub const fn namespace(&self) -> &str {
         let namespace_len = self.namespace_len();
@@ -53,6 +113,15 @@ impl NamespacedIdRef {
         namespace
     }
 
+    /// Returns the portion of the id after the colon.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::ident;
+    ///
+    /// assert_eq!("id", ident!("namespace:id").id());
+    /// ```
     #[must_use]
     pub const fn id(&self) -> &str {
         let namespace_len = self.namespace_len();
@@ -83,23 +152,14 @@ impl Display for NamespacedIdRef {
 
 impl Debug for NamespacedIdRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NamespacedIdRef(\"{}\")", &self.as_str())
+        write!(f, "ident!(\"{}\")", &self.as_str())
     }
 }
 
-impl ToOwned for NamespacedIdRef {
-    type Owned = NamespacedId;
-    fn to_owned(&self) -> Self::Owned {
-        NamespacedId::from_box_unchecked(Box::<str>::from(self.as_str()))
-    }
-}
-
-impl Borrow<str> for NamespacedIdRef {
-    fn borrow(&self) -> &str {
-        self.as_str()
-    }
-}
-
+/// An owned id that is prefixed with a namespace, like `<namespace>:<id>`.
+///
+/// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
+/// [`NamespacedId`] (see [`NamespacedIdRef::try_from_str`] for the requirements).
 #[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct NamespacedId {
@@ -107,22 +167,62 @@ pub struct NamespacedId {
 }
 
 impl NamespacedId {
+    /// Creates a new [`NamespacedId`] from a separated `namespace` and `id`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::NamespacedId;
+    ///
+    /// let id = NamespacedId::try_new("namespace", "id")
+    ///     .expect("id should be valid");
+    /// assert_eq!("namespace:id", id.as_str());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`ParseError::TooManySeparators`] if either component has a colon.
+    /// - [`ParseError::UnexpectedWhitespace`] if either component has whitespace.
     pub fn try_new(namespace: &str, id: &str) -> Result<Self, ParseError> {
         let string = format!("{namespace}:{id}");
         let boxed = Box::<str>::from(string);
         Self::try_from_box(boxed)
     }
 
+    /// Creates a new [`NamespacedId`] from a [`Box<str>`].
+    ///
+    /// # Errors
+    ///
+    /// - See [`NamespacedIdRef::try_from_str`].
     pub fn try_from_box(string: Box<str>) -> Result<Self, ParseError> {
         validate(&string)?;
         Ok(Self::from_box_unchecked(string))
     }
 
+    /// Creates a new [`NamespacedId`] by allocating a [`&str`].
+    ///
+    /// # Errors
+    ///
+    /// - See [`NamespacedIdRef::try_from_str`].
     pub fn try_from_str(string: &str) -> Result<Self, ParseError> {
         validate(string)?;
         Ok(Self::from_box_unchecked(Box::<str>::from(string)))
     }
 
+    /// Converts `string` into a [`NamespacedIdRef`] without checking if it is a valid id.
+    ///
+    /// Note that this may cause panics down the line if the id is not valid, but it won't cause
+    /// any undefined behavior.
+    ///
+    /// # Examples
+    ///
+    /// ```should_panic
+    /// use namespaced_id::NamespacedId;
+    ///
+    /// let id = NamespacedId::from_box_unchecked(From::from("invalid_id"));
+    /// // panics here, as `id` is invalid (and so it doesn't have a namespace)
+    /// let _ = id.namespace();
+    /// ```
     #[must_use]
     pub const fn from_box_unchecked(string: Box<str>) -> Self {
         // SAFETY: NamespacedId is #[repr(transparent)]
@@ -139,9 +239,11 @@ impl Display for NamespacedId {
 
 impl Debug for NamespacedId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NamespacedId(\"{}\")", &self.as_str())
+        write!(f, "*ident!(\"{}\")", &self.as_str())
     }
 }
+
+// deref-style impls
 
 impl Deref for NamespacedId {
     type Target = NamespacedIdRef;
@@ -168,11 +270,40 @@ impl From<&NamespacedIdRef> for NamespacedId {
     }
 }
 
+impl ToOwned for NamespacedIdRef {
+    type Owned = NamespacedId;
+    fn to_owned(&self) -> Self::Owned {
+        NamespacedId::from_box_unchecked(Box::<str>::from(self.as_str()))
+    }
+}
+
+// Borrow<str> impls
+
+impl Borrow<str> for NamespacedIdRef {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<str> for NamespacedIdRef {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
 impl Borrow<str> for NamespacedId {
     fn borrow(&self) -> &str {
         self.as_str()
     }
 }
+
+impl AsRef<str> for NamespacedId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+// PartialEq and PartialOrd impls
 
 #[allow(unstable_name_collisions)]
 mod cmp_impls {
@@ -235,15 +366,19 @@ mod cmp_impls {
     cmp_impls!(&str, NamespacedIdRef);
 }
 
-/// An error encountered while parsing a [`NamespacedId`]
+/// An error encountered while converting a string into a [`NamespacedId`].
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum ParseError {
+    /// No namespace was provided - the input was an empty string.
     #[error("expected a namespace, found an empty string")]
     ExpectedNamespace,
+    /// No id was provided - the input had no separator.
     #[error("expected an id, found no separator (':')")]
     ExpectedId,
+    /// There were too many separators (':' characters).
     #[error("expected only 1 separator (':'), found {0}")]
     TooManySeparators(usize),
+    /// There was whitespace in the namespace or id.
     #[error("expected no whitespace, found some at index {0}")]
     UnexpectedWhitespace(usize),
 }
@@ -259,6 +394,20 @@ impl FromStr for NamespacedId {
     type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::try_from_str(s)
+    }
+}
+
+impl TryFrom<&str> for NamespacedId {
+    type Error = ParseError;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::try_from_str(value)
+    }
+}
+
+impl TryFrom<Box<str>> for NamespacedId {
+    type Error = ParseError;
+    fn try_from(value: Box<str>) -> Result<Self, Self::Error> {
+        Self::try_from_box(value)
     }
 }
 
