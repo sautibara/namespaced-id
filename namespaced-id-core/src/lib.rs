@@ -4,11 +4,9 @@ use thiserror::Error;
 ///
 /// # Errors
 ///
-/// - [`ParseError::ExpectedNamespace`] if `string` has no namespace (is empty).
-/// - [`ParseError::ExpectedId`] if `string` has no id (has no separator).
-/// - [`ParseError::TooManySeparators`] if `string` has too many colons.
+/// - [`ParseError::UnexpectedComponentCount`] if `string` has the wrong number of components.
 /// - [`ParseError::UnexpectedWhitespace`] if `string` has any whitespace.
-pub const fn validate(string: &str) -> Result<(), ParseError> {
+pub const fn validate<const N: usize>(string: &str) -> Result<(), ParseError<N>> {
     let mut i = 0;
     let mut separators_found = 0;
     while i < string.len() {
@@ -28,26 +26,22 @@ pub const fn validate(string: &str) -> Result<(), ParseError> {
         i += 1;
     }
 
-    match separators_found {
-        0 if string.is_empty() => Err(ParseError::ExpectedNamespace),
-        0 => Err(ParseError::ExpectedId),
-        1 => Ok(()),
-        count => Err(ParseError::TooManySeparators(count)),
+    let component_count = separators_found + 1;
+    if component_count == N {
+        Ok(())
+    } else if string.is_empty() {
+        Err(ParseError::UnexpectedComponentCount(0))
+    } else {
+        Err(ParseError::UnexpectedComponentCount(component_count))
     }
 }
 
 /// An error encountered while converting a string into a `NamespacedId`.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
-pub enum ParseError {
-    /// No namespace was provided - the input was an empty string.
-    #[error("expected a namespace, found an empty string")]
-    ExpectedNamespace,
-    /// No id was provided - the input had no separator.
-    #[error("expected an id, found no separator (':')")]
-    ExpectedId,
-    /// There were too many separators (':' characters).
-    #[error("expected only 1 separator (':'), found {0}")]
-    TooManySeparators(usize),
+pub enum ParseError<const N: usize> {
+    /// There was an invalid amount of components.
+    #[error("expected {} components ({} colon(s)), found {}", N, N - 1, .0)]
+    UnexpectedComponentCount(usize),
     /// There was whitespace in the namespace or id.
     #[error("expected no whitespace, found some at index {0}")]
     UnexpectedWhitespace(usize),

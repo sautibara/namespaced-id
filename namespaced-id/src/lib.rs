@@ -10,19 +10,35 @@ pub use namespaced_id_core::validate;
 /// An error encountered while converting a string into a `NamespacedId`.
 pub use namespaced_id_core::ParseError;
 
+/// Returns a [`&'static NamespacedIdRef`](NamespacedIdRef) of the given namespaced id string
+/// literal.
+///
+/// # Examples
+///
+/// ```
+/// use namespaced_id::ident;
+/// let id = ident!("namespace:id");
+/// assert_eq!("namespace:id", id.as_str());
+/// ```
+///
+/// Compilation fails if the identifier is not a valid [`NamespacedId`].
+///
+/// ```compile_fail
+/// namespaced_id::ident!("invalid_id");
+/// ```
 pub use namespaced_id_macros::ident;
 
-/// A reference to a [`NamespacedId`], akin to a `str`.
+/// A reference to a [`DelimitedId`], akin to a `str`.
 ///
-/// This is identical to `str` in every way, except that it has the invariant of being a valid
-/// [`NamespacedId`] (see [`Self::try_from_str`] for the requirements).
+/// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
+/// [`NamespacedId`] (see [`validate`] for the requirements).
 #[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct NamespacedIdRef {
+pub struct DelimitedIdRef<const N: usize> {
     inner: str,
 }
 
-impl NamespacedIdRef {
+impl<const N: usize> DelimitedIdRef<N> {
     /// Gets the string representation of this id.
     ///
     /// # Examples
@@ -56,11 +72,10 @@ impl NamespacedIdRef {
     ///
     /// # Errors
     ///
-    /// - [`ParseError::ExpectedNamespace`] if `string` has no namespace (is empty).
-    /// - [`ParseError::ExpectedId`] if `string` has no id (has no separator).
-    /// - [`ParseError::TooManySeparators`] if `string` has too many colons.
+    /// - [`ParseError::UnexpectedComponentCount`] if `string` doesn't have two components
+    ///   (one ':').
     /// - [`ParseError::UnexpectedWhitespace`] if `string` has any whitespace.
-    pub const fn try_from_str(string: &str) -> Result<&Self, ParseError> {
+    pub const fn try_from_str(string: &str) -> Result<&Self, ParseError<N>> {
         if let Err(err) = validate(string) {
             return Err(err);
         }
@@ -79,7 +94,7 @@ impl NamespacedIdRef {
     /// use namespaced_id::NamespacedIdRef;
     ///
     /// let id = NamespacedIdRef::from_str_unchecked("invalid_id");
-    /// // panics here, as `id` is invalid (and so it doesn't have an id)
+    /// // Panics here, as `id` is invalid (and so it doesn't have an id).
     /// let _ = id.id();
     /// ```
     #[must_use]
@@ -89,6 +104,294 @@ impl NamespacedIdRef {
         unsafe { &*(std::ptr::from_ref(string) as *const Self) }
     }
 
+    const fn delimiter_indicies(&self) -> [usize; N] {
+        let mut indicies = [0; _];
+
+        let mut i = 0;
+        let mut array_index = 0;
+        while i < self.inner.len() {
+            let byte = self.inner.as_bytes()[i];
+            if byte == b':' {
+                indicies[array_index] = i;
+                array_index += 1;
+            }
+
+            i += 1;
+        }
+
+        debug_assert!(array_index + 1 == N, "incorrect separator count");
+
+        indicies[array_index] = i;
+        indicies
+    }
+}
+
+impl<'a, const N: usize> TryFrom<&'a str> for &'a DelimitedIdRef<N> {
+    type Error = ParseError<N>;
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        DelimitedIdRef::try_from_str(value)
+    }
+}
+
+/// An id that is made up of `N` different components that are all separated by `:` delimiters.
+///
+/// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
+/// [`NamespacedId`] (see [`validate`] for the requirements).
+#[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct DelimitedId<const N: usize> {
+    inner: Box<DelimitedIdRef<N>>,
+}
+
+impl<const N: usize> DelimitedId<N> {
+    /// Creates a new [`NamespacedId`] from a [`Box<str>`].
+    ///
+    /// # Errors
+    ///
+    /// - See [`validate`].
+    pub fn try_from_box(string: Box<str>) -> Result<Self, ParseError<N>> {
+        validate(&string)?;
+        Ok(Self::from_box_unchecked(string))
+    }
+
+    /// Creates a new [`NamespacedId`] by allocating a [`&str`].
+    ///
+    /// # Errors
+    ///
+    /// - See [`validate`].
+    pub fn try_from_str(string: &str) -> Result<Self, ParseError<N>> {
+        validate(string)?;
+        Ok(Self::from_box_unchecked(Box::<str>::from(string)))
+    }
+
+    /// Converts `string` into a [`NamespacedIdRef`] without checking if it is a valid id.
+    ///
+    /// Note that this may cause panics down the line if the id is not valid, but it won't cause
+    /// any undefined behavior.
+    ///
+    /// # Examples
+    ///
+    /// ```should_panic
+    /// use namespaced_id::NamespacedId;
+    ///
+    /// let id = NamespacedId::from_box_unchecked(From::from("invalid_id"));
+    /// // Panics here, as `id` is invalid (and so it doesn't have a namespace).
+    /// let _ = id.namespace();
+    /// ```
+    #[must_use]
+    pub const fn from_box_unchecked(string: Box<str>) -> Self {
+        // SAFETY: NamespacedId is #[repr(transparent)]
+        // NOTE: safety is not upheld by caller - this is always safe
+        unsafe { std::mem::transmute(string) }
+    }
+}
+
+impl<const N: usize> TryFrom<&str> for DelimitedId<N> {
+    type Error = ParseError<N>;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::try_from_str(value)
+    }
+}
+
+impl<const N: usize> TryFrom<Box<str>> for DelimitedId<N> {
+    type Error = ParseError<N>;
+    fn try_from(value: Box<str>) -> Result<Self, Self::Error> {
+        Self::try_from_box(value)
+    }
+}
+
+impl<const N: usize> FromStr for DelimitedId<N> {
+    type Err = ParseError<N>;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from_str(s)
+    }
+}
+
+// display impls
+
+impl<const N: usize> Display for DelimitedIdRef<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.inner)
+    }
+}
+
+impl<const N: usize> Display for DelimitedId<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.inner)
+    }
+}
+
+// deref-style impls
+
+impl<const N: usize> Deref for DelimitedId<N> {
+    type Target = DelimitedIdRef<N>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<const N: usize> Borrow<DelimitedIdRef<N>> for DelimitedId<N> {
+    fn borrow(&self) -> &DelimitedIdRef<N> {
+        &self.inner
+    }
+}
+
+impl<const N: usize> Clone for DelimitedId<N> {
+    fn clone(&self) -> Self {
+        self.inner.to_owned()
+    }
+}
+
+impl<const N: usize> From<&DelimitedIdRef<N>> for DelimitedId<N> {
+    fn from(value: &DelimitedIdRef<N>) -> Self {
+        value.to_owned()
+    }
+}
+
+impl<const N: usize> ToOwned for DelimitedIdRef<N> {
+    type Owned = DelimitedId<N>;
+    fn to_owned(&self) -> Self::Owned {
+        DelimitedId::from_box_unchecked(Box::<str>::from(self.as_str()))
+    }
+}
+
+// Borrow<str> impls
+
+impl<const N: usize> Borrow<str> for DelimitedIdRef<N> {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<const N: usize> AsRef<str> for DelimitedIdRef<N> {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<const N: usize> Borrow<str> for DelimitedId<N> {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<const N: usize> AsRef<str> for DelimitedId<N> {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+// PartialEq and PartialOrd impls
+
+#[allow(unstable_name_collisions)]
+mod cmp_impls {
+    use super::{DelimitedId, DelimitedIdRef};
+
+    trait StrAsStr {
+        fn as_str(&self) -> &str;
+    }
+
+    impl StrAsStr for str {
+        fn as_str(&self) -> &str {
+            self
+        }
+    }
+
+    // accept comparing any combination of DelimitedId, DelimitedIdRef, and str
+
+    macro_rules! cmp_impls {
+        ($left:ty, $right:ty) => {
+            impl<const N: usize> PartialEq<$right> for $left {
+                fn eq(&self, right: &$right) -> bool {
+                    self.as_str() == right.as_str()
+                }
+            }
+
+            impl<const N: usize> PartialOrd<$right> for $left {
+                fn partial_cmp(&self, other: &$right) -> Option<std::cmp::Ordering> {
+                    self.as_str().partial_cmp(other.as_str())
+                }
+            }
+        };
+    }
+
+    cmp_impls!(DelimitedId<N>, &DelimitedId<N>);
+    cmp_impls!(DelimitedId<N>, DelimitedIdRef<N>);
+    cmp_impls!(DelimitedId<N>, &DelimitedIdRef<N>);
+    cmp_impls!(DelimitedId<N>, str);
+    cmp_impls!(DelimitedId<N>, &str);
+
+    cmp_impls!(&DelimitedId<N>, DelimitedId<N>);
+    cmp_impls!(&DelimitedId<N>, DelimitedIdRef<N>);
+    cmp_impls!(&DelimitedId<N>, str);
+
+    cmp_impls!(DelimitedIdRef<N>, DelimitedId<N>);
+    cmp_impls!(DelimitedIdRef<N>, &DelimitedId<N>);
+    cmp_impls!(DelimitedIdRef<N>, &DelimitedIdRef<N>);
+    cmp_impls!(DelimitedIdRef<N>, str);
+    cmp_impls!(DelimitedIdRef<N>, &str);
+
+    cmp_impls!(&DelimitedIdRef<N>, DelimitedId<N>);
+    cmp_impls!(&DelimitedIdRef<N>, DelimitedIdRef<N>);
+    cmp_impls!(&DelimitedIdRef<N>, str);
+
+    cmp_impls!(str, DelimitedId<N>);
+    cmp_impls!(str, &DelimitedId<N>);
+    cmp_impls!(str, DelimitedIdRef<N>);
+    cmp_impls!(str, &DelimitedIdRef<N>);
+
+    cmp_impls!(&str, DelimitedId<N>);
+    cmp_impls!(&str, DelimitedIdRef<N>);
+}
+
+#[cfg(feature = "serde")]
+impl<const N: usize> Serialize for DelimitedId<N> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, const N: usize> Deserialize<'de> for DelimitedId<N> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(DelimitedIdVisitor::<N>)
+    }
+}
+
+#[cfg(feature = "serde")]
+struct DelimitedIdVisitor<const N: usize>;
+#[cfg(feature = "serde")]
+impl<const N: usize> Visitor<'_> for DelimitedIdVisitor<N> {
+    type Value = DelimitedId<N>;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "a namespaced id string in the form of '<namespace>:<id>'"
+        )
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        v.parse().map_err(de::Error::custom)
+    }
+}
+
+/// A reference to a [`NamespacedId`], akin to a `str`.
+///
+/// This is identical to `str` in every way, except that it has the invariant of being a valid
+/// [`NamespacedId`] (see [`validate`] for the requirements).
+pub type NamespacedIdRef = DelimitedIdRef<2>;
+
+impl NamespacedIdRef {
     /// Returns the portion of the id before the colon.
     ///
     /// # Examples
@@ -122,23 +425,8 @@ impl NamespacedIdRef {
     }
 
     const fn namespace_len(&self) -> usize {
-        let mut i = 0;
-        while i < self.inner.len() {
-            let byte = self.inner.as_bytes()[i];
-            if byte == b':' {
-                return i;
-            }
-
-            i += 1;
-        }
-
-        unreachable!()
-    }
-}
-
-impl Display for NamespacedIdRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.inner)
+        let [namespace_len, _] = self.delimiter_indicies();
+        namespace_len
     }
 }
 
@@ -151,12 +439,8 @@ impl Debug for NamespacedIdRef {
 /// An owned id that is prefixed with a namespace, like `<namespace>:<id>`.
 ///
 /// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
-/// [`NamespacedId`] (see [`NamespacedIdRef::try_from_str`] for the requirements).
-#[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
-pub struct NamespacedId {
-    inner: Box<NamespacedIdRef>,
-}
+/// [`NamespacedId`] (see [`validate`] for the requirements).
+pub type NamespacedId = DelimitedId<2>;
 
 impl NamespacedId {
     /// Creates a new [`NamespacedId`] from a separated `namespace` and `id`.
@@ -173,257 +457,18 @@ impl NamespacedId {
     ///
     /// # Errors
     ///
-    /// - [`ParseError::TooManySeparators`] if either component has a colon.
+    /// - [`ParseError::UnexpectedComponentCount`] if either component has a colon.
     /// - [`ParseError::UnexpectedWhitespace`] if either component has whitespace.
-    pub fn try_new(namespace: &str, id: &str) -> Result<Self, ParseError> {
+    pub fn try_new(namespace: &str, id: &str) -> Result<Self, ParseError<2>> {
         let string = format!("{namespace}:{id}");
         let boxed = Box::<str>::from(string);
         Self::try_from_box(boxed)
-    }
-
-    /// Creates a new [`NamespacedId`] from a [`Box<str>`].
-    ///
-    /// # Errors
-    ///
-    /// - See [`NamespacedIdRef::try_from_str`].
-    pub fn try_from_box(string: Box<str>) -> Result<Self, ParseError> {
-        validate(&string)?;
-        Ok(Self::from_box_unchecked(string))
-    }
-
-    /// Creates a new [`NamespacedId`] by allocating a [`&str`].
-    ///
-    /// # Errors
-    ///
-    /// - See [`NamespacedIdRef::try_from_str`].
-    pub fn try_from_str(string: &str) -> Result<Self, ParseError> {
-        validate(string)?;
-        Ok(Self::from_box_unchecked(Box::<str>::from(string)))
-    }
-
-    /// Converts `string` into a [`NamespacedIdRef`] without checking if it is a valid id.
-    ///
-    /// Note that this may cause panics down the line if the id is not valid, but it won't cause
-    /// any undefined behavior.
-    ///
-    /// # Examples
-    ///
-    /// ```should_panic
-    /// use namespaced_id::NamespacedId;
-    ///
-    /// let id = NamespacedId::from_box_unchecked(From::from("invalid_id"));
-    /// // panics here, as `id` is invalid (and so it doesn't have a namespace)
-    /// let _ = id.namespace();
-    /// ```
-    #[must_use]
-    pub const fn from_box_unchecked(string: Box<str>) -> Self {
-        // SAFETY: NamespacedId is #[repr(transparent)]
-        // NOTE: safety is not upheld by caller - this is always safe
-        unsafe { std::mem::transmute(string) }
-    }
-}
-
-impl Display for NamespacedId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.inner)
     }
 }
 
 impl Debug for NamespacedId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "*ident!(\"{}\")", &self.as_str())
-    }
-}
-
-// deref-style impls
-
-impl Deref for NamespacedId {
-    type Target = NamespacedIdRef;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl Borrow<NamespacedIdRef> for NamespacedId {
-    fn borrow(&self) -> &NamespacedIdRef {
-        &self.inner
-    }
-}
-
-impl Clone for NamespacedId {
-    fn clone(&self) -> Self {
-        self.inner.to_owned()
-    }
-}
-
-impl From<&NamespacedIdRef> for NamespacedId {
-    fn from(value: &NamespacedIdRef) -> Self {
-        value.to_owned()
-    }
-}
-
-impl ToOwned for NamespacedIdRef {
-    type Owned = NamespacedId;
-    fn to_owned(&self) -> Self::Owned {
-        NamespacedId::from_box_unchecked(Box::<str>::from(self.as_str()))
-    }
-}
-
-// Borrow<str> impls
-
-impl Borrow<str> for NamespacedIdRef {
-    fn borrow(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl AsRef<str> for NamespacedIdRef {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl Borrow<str> for NamespacedId {
-    fn borrow(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl AsRef<str> for NamespacedId {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-// PartialEq and PartialOrd impls
-
-#[allow(unstable_name_collisions)]
-mod cmp_impls {
-    use super::{NamespacedId, NamespacedIdRef};
-
-    trait StrAsStr {
-        fn as_str(&self) -> &str;
-    }
-
-    impl StrAsStr for str {
-        fn as_str(&self) -> &str {
-            self
-        }
-    }
-
-    // accept comparing any combination of NamespacedId, NamespacedIdRef, and str
-
-    macro_rules! cmp_impls {
-        ($left:ty, $right:ty) => {
-            impl PartialEq<$right> for $left {
-                fn eq(&self, right: &$right) -> bool {
-                    self.as_str() == right.as_str()
-                }
-            }
-
-            impl PartialOrd<$right> for $left {
-                fn partial_cmp(&self, other: &$right) -> Option<std::cmp::Ordering> {
-                    self.as_str().partial_cmp(other.as_str())
-                }
-            }
-        };
-    }
-
-    cmp_impls!(NamespacedId, &NamespacedId);
-    cmp_impls!(NamespacedId, NamespacedIdRef);
-    cmp_impls!(NamespacedId, &NamespacedIdRef);
-    cmp_impls!(NamespacedId, str);
-    cmp_impls!(NamespacedId, &str);
-
-    cmp_impls!(&NamespacedId, NamespacedId);
-    cmp_impls!(&NamespacedId, NamespacedIdRef);
-    cmp_impls!(&NamespacedId, str);
-
-    cmp_impls!(NamespacedIdRef, NamespacedId);
-    cmp_impls!(NamespacedIdRef, &NamespacedId);
-    cmp_impls!(NamespacedIdRef, &NamespacedIdRef);
-    cmp_impls!(NamespacedIdRef, str);
-    cmp_impls!(NamespacedIdRef, &str);
-
-    cmp_impls!(&NamespacedIdRef, NamespacedId);
-    cmp_impls!(&NamespacedIdRef, NamespacedIdRef);
-    cmp_impls!(&NamespacedIdRef, str);
-
-    cmp_impls!(str, NamespacedId);
-    cmp_impls!(str, &NamespacedId);
-    cmp_impls!(str, NamespacedIdRef);
-    cmp_impls!(str, &NamespacedIdRef);
-
-    cmp_impls!(&str, NamespacedId);
-    cmp_impls!(&str, NamespacedIdRef);
-}
-
-impl<'a> TryFrom<&'a str> for &'a NamespacedIdRef {
-    type Error = ParseError;
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        NamespacedIdRef::try_from_str(value)
-    }
-}
-
-impl FromStr for NamespacedId {
-    type Err = ParseError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from_str(s)
-    }
-}
-
-impl TryFrom<&str> for NamespacedId {
-    type Error = ParseError;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::try_from_str(value)
-    }
-}
-
-impl TryFrom<Box<str>> for NamespacedId {
-    type Error = ParseError;
-    fn try_from(value: Box<str>) -> Result<Self, Self::Error> {
-        Self::try_from_box(value)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl Serialize for NamespacedId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de> Deserialize<'de> for NamespacedId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_str(NamespacedIdVisitor)
-    }
-}
-
-#[cfg(feature = "serde")]
-struct NamespacedIdVisitor;
-#[cfg(feature = "serde")]
-impl Visitor<'_> for NamespacedIdVisitor {
-    type Value = NamespacedId;
-
-    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "a namespaced id string in the form of '<namespace>:<id>'"
-        )
-    }
-
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        v.parse().map_err(de::Error::custom)
     }
 }
 
@@ -443,7 +488,7 @@ mod tests {
     #[test]
     fn expected_namespace_error() {
         assert_eq!(
-            Err(ParseError::ExpectedNamespace),
+            Err(ParseError::UnexpectedComponentCount(0)),
             NamespacedIdRef::try_from_str("")
         );
     }
@@ -451,7 +496,7 @@ mod tests {
     #[test]
     fn expected_id_error() {
         assert_eq!(
-            Err(ParseError::ExpectedId),
+            Err(ParseError::UnexpectedComponentCount(1)),
             NamespacedIdRef::try_from_str("a")
         );
     }
@@ -459,7 +504,7 @@ mod tests {
     #[test]
     fn too_many_separators_error() {
         assert_eq!(
-            Err(ParseError::TooManySeparators(2)),
+            Err(ParseError::UnexpectedComponentCount(3)),
             NamespacedIdRef::try_from_str("a:b:c")
         );
     }
@@ -483,13 +528,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "unreachable"]
+    #[should_panic = "incorrect separator count"]
     fn namespace_panics_without_separator() {
         let _ = NamespacedIdRef::from_str_unchecked("no_separator").namespace();
     }
 
     #[test]
-    #[should_panic = "unreachable"]
+    #[should_panic = "incorrect separator count"]
     fn id_panics_without_separator() {
         let _ = NamespacedIdRef::from_str_unchecked("no_separator").id();
     }
