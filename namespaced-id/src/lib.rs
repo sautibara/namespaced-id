@@ -5,7 +5,12 @@ use std::{
     str::FromStr,
 };
 
-use thiserror::Error;
+pub use namespaced_id_core::validate;
+
+/// An error encountered while converting a string into a `NamespacedId`.
+pub use namespaced_id_core::ParseError;
+
+pub use namespaced_id_macros::ident;
 
 /// A reference to a [`NamespacedId`], akin to a `str`.
 ///
@@ -15,19 +20,6 @@ use thiserror::Error;
 #[repr(transparent)]
 pub struct NamespacedIdRef {
     inner: str,
-}
-
-// TODO: better error messages (make into a proc macro)
-#[macro_export]
-macro_rules! ident {
-    ($str:literal $(,)?) => {
-        const {
-            match $crate::NamespacedIdRef::try_from_str($str) {
-                Ok(val) => val,
-                Err(_) => panic!(),
-            }
-        }
-    };
 }
 
 impl NamespacedIdRef {
@@ -366,23 +358,6 @@ mod cmp_impls {
     cmp_impls!(&str, NamespacedIdRef);
 }
 
-/// An error encountered while converting a string into a [`NamespacedId`].
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
-pub enum ParseError {
-    /// No namespace was provided - the input was an empty string.
-    #[error("expected a namespace, found an empty string")]
-    ExpectedNamespace,
-    /// No id was provided - the input had no separator.
-    #[error("expected an id, found no separator (':')")]
-    ExpectedId,
-    /// There were too many separators (':' characters).
-    #[error("expected only 1 separator (':'), found {0}")]
-    TooManySeparators(usize),
-    /// There was whitespace in the namespace or id.
-    #[error("expected no whitespace, found some at index {0}")]
-    UnexpectedWhitespace(usize),
-}
-
 impl<'a> TryFrom<&'a str> for &'a NamespacedIdRef {
     type Error = ParseError;
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
@@ -408,34 +383,6 @@ impl TryFrom<Box<str>> for NamespacedId {
     type Error = ParseError;
     fn try_from(value: Box<str>) -> Result<Self, Self::Error> {
         Self::try_from_box(value)
-    }
-}
-
-const fn validate(string: &str) -> Result<(), ParseError> {
-    let mut i = 0;
-    let mut separators_found = 0;
-    while i < string.len() {
-        let byte = string.as_bytes()[i];
-        let character = if byte.is_ascii() {
-            byte as char
-        } else {
-            continue;
-        };
-
-        if character == ':' {
-            separators_found += 1;
-        } else if character.is_whitespace() {
-            return Err(ParseError::UnexpectedWhitespace(i));
-        }
-
-        i += 1;
-    }
-
-    match separators_found {
-        0 if string.is_empty() => Err(ParseError::ExpectedNamespace),
-        0 => Err(ParseError::ExpectedId),
-        1 => Ok(()),
-        count => Err(ParseError::TooManySeparators(count)),
     }
 }
 
@@ -482,7 +429,8 @@ impl Visitor<'_> for NamespacedIdVisitor {
 
 #[cfg(test)]
 mod tests {
-    use crate::{NamespacedId, NamespacedIdRef, ParseError};
+    use crate as namespaced_id;
+    use crate::{NamespacedId, NamespacedIdRef, ParseError, ident};
 
     #[test]
     fn roundtrip_check() {

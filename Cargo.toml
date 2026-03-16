@@ -1,14 +1,15 @@
-[package]
-name = "namespaced-id"
-version = "0.1.0"
-edition = "2024"
+[workspace]
 
-[dependencies]
-serde = { version = "1.0.228", optional = true }
-thiserror = "2.0.18"
+members = [
+  "namespaced-id",
+  "namespaced-id-core",
+  "namespaced-id-macros",
+]
+resolver = "2"
 
-[lints]
-workspace = true
-
-[features]
-serde = ["dep:serde"]
+[workspace.lints.clippy]
+enum_glob_use = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# i just disagree with it
+option_if_let_else = "allow"
