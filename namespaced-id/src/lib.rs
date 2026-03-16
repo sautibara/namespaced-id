@@ -28,6 +28,28 @@ pub use namespaced_id_core::ParseError;
 /// ```
 pub use namespaced_id_macros::ident;
 
+/// Returns a [`&'static OperationIdRef`](OperationIdRef) of the given operation id string
+/// literal.
+///
+/// # Examples
+///
+/// ```
+/// use namespaced_id::op_ident;
+/// let id = op_ident!("namespace:id:operation");
+/// assert_eq!("namespace:id:operation", id.as_str());
+/// ```
+///
+/// Compilation fails if the identifier is not a valid [`OperationId`].
+///
+/// ```compile_fail
+/// namespaced_id::op_ident!("invalid_id");
+/// ```
+///
+/// ```compile_fail
+/// namespaced_id::op_ident!("invalid:id");
+/// ```
+pub use namespaced_id_macros::op_ident;
+
 /// A reference to a [`DelimitedId`], akin to a `str`.
 ///
 /// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
@@ -450,7 +472,7 @@ impl NamespacedId {
     /// ```
     /// use namespaced_id::NamespacedId;
     ///
-    /// let id = NamespacedId::try_new("namespace", "id")
+    /// let id = NamespacedId::new("namespace", "id")
     ///     .expect("id should be valid");
     /// assert_eq!("namespace:id", id.as_str());
     /// ```
@@ -459,7 +481,7 @@ impl NamespacedId {
     ///
     /// - [`ParseError::UnexpectedComponentCount`] if either component has a colon.
     /// - [`ParseError::UnexpectedWhitespace`] if either component has whitespace.
-    pub fn try_new(namespace: &str, id: &str) -> Result<Self, ParseError<2>> {
+    pub fn new(namespace: &str, id: &str) -> Result<Self, ParseError<2>> {
         let string = format!("{namespace}:{id}");
         let boxed = Box::<str>::from(string);
         Self::try_from_box(boxed)
@@ -469,6 +491,116 @@ impl NamespacedId {
 impl Debug for NamespacedId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "*ident!(\"{}\")", &self.as_str())
+    }
+}
+
+/// A reference to a [`OperationId`], akin to a `str`.
+///
+/// This is identical to `str` in every way, except that it has the invariant of being a valid
+/// [`NamespacedId`] (see [`validate`] for the requirements).
+pub type OperationIdRef = DelimitedIdRef<3>;
+
+impl OperationIdRef {
+    /// Returns the first two components of the id - the namespaced id.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::{op_ident, ident};
+    ///
+    /// assert_eq!(ident!("namespace:id"), op_ident!("namespace:id:operation").namespaced_id());
+    /// ```
+    #[must_use]
+    pub const fn namespaced_id(&self) -> &NamespacedIdRef {
+        let [_, second_colon, _] = self.delimiter_indicies();
+        let (namespaced_id, _) = self.inner.split_at(second_colon);
+        NamespacedIdRef::from_str_unchecked(namespaced_id)
+    }
+
+    /// Returns the first component of the id - the namespace.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::op_ident;
+    ///
+    /// assert_eq!("namespace", op_ident!("namespace:id:operation").namespace());
+    /// ```
+    #[must_use]
+    pub const fn namespace(&self) -> &str {
+        self.namespaced_id().namespace()
+    }
+
+    /// Returns the second component of the id - the id.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::op_ident;
+    ///
+    /// assert_eq!("id", op_ident!("namespace:id:operation").id());
+    /// ```
+    #[must_use]
+    pub const fn id(&self) -> &str {
+        self.namespaced_id().id()
+    }
+
+    /// Returns the third component of the id - the operation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::op_ident;
+    ///
+    /// assert_eq!("operation", op_ident!("namespace:id:operation").operation());
+    /// ```
+    #[must_use]
+    pub const fn operation(&self) -> &str {
+        let [_, second_colon, _] = self.delimiter_indicies();
+        let (_, operation) = self.inner.split_at(second_colon + 1);
+        operation
+    }
+}
+
+impl Debug for OperationIdRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "op_ident!(\"{}\")", &self.as_str())
+    }
+}
+
+/// A [`NamespacedId`] plus an operation, like `<namespace>:<id>:<operation>`.
+///
+/// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
+/// [`OperationId`] (see [`validate`] for the requirements).
+pub type OperationId = DelimitedId<3>;
+
+impl OperationId {
+    /// Creates a new [`OperationId`] from a separated `namespace`, `id`, and `operation`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::OperationId;
+    ///
+    /// let id = OperationId::new("namespace", "id", "operation")
+    ///     .expect("id should be valid");
+    /// assert_eq!("namespace:id:operation", id.as_str());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`ParseError::UnexpectedComponentCount`] if either component has a colon.
+    /// - [`ParseError::UnexpectedWhitespace`] if either component has whitespace.
+    pub fn new(namespace: &str, id: &str, operation: &str) -> Result<Self, ParseError<3>> {
+        let string = format!("{namespace}:{id}:{operation}");
+        let boxed = Box::<str>::from(string);
+        Self::try_from_box(boxed)
+    }
+}
+
+impl Debug for OperationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "*op_ident!(\"{}\")", &self.as_str())
     }
 }
 
@@ -559,7 +691,7 @@ mod tests {
 
     #[test]
     fn try_new() {
-        match NamespacedId::try_new("namespace", "id") {
+        match NamespacedId::new("namespace", "id") {
             Ok(id) => {
                 assert_eq!("namespace:id", id);
             }
