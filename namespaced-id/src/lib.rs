@@ -235,9 +235,9 @@ impl<const N: usize> DelimitedIdRef<N> {
     ///
     /// # Errors
     ///
-    /// - [`ParseError::UnexpectedComponentCount`] if `string` doesn't have two components
-    ///   (one ':').
-    /// - [`ParseError::UnexpectedWhitespace`] if `string` has any whitespace.
+    /// - [`ParseError::UnexpectedComponentCount`] if `string` doesn't have the correct number
+    ///   of components.
+    /// - [`ParseError::UnexpectedCharacter`] if `string` has a character not in `[a-z0-9-_./]`.
     pub const fn new(string: &str) -> Result<&Self, ParseError<N>> {
         if let Err(err) = validate(string) {
             return Err(err);

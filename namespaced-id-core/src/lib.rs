@@ -1,3 +1,5 @@
+//! Things that are used in both the `namespaced-id` and `namespaced-id-macros` crates.
+
 use thiserror::Error;
 
 const fn is_valid_byte(byte: u8) -> bool {
