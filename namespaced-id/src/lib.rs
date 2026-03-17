@@ -1,13 +1,21 @@
 use std::{
     borrow::Borrow,
     fmt::{Debug, Display},
-    ops::Deref,
+    ops::{Add, Deref},
     str::FromStr,
 };
 
+use self as namespaced_id;
+
+const fn substring_const(string: &str, start: usize, end: usize) -> &str {
+    let (string, _) = string.split_at(end);
+    let (_, string) = string.split_at(start);
+    string
+}
+
 pub use namespaced_id_core::validate;
 
-/// An error encountered while converting a string into a `NamespacedId`.
+/// An error encountered while converting a string into a [`DelimitedId`].
 pub use namespaced_id_core::ParseError;
 
 /// Returns a [`&'static NamespacedIdRef`](NamespacedIdRef) of the given namespaced id string
@@ -74,7 +82,7 @@ pub use namespaced_id_macros::ident_component;
 /// A reference to a [`DelimitedId`], akin to a `str`.
 ///
 /// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
-/// [`NamespacedId`] (see [`validate`] for the requirements).
+/// [`DelimitedId`] (see [`validate`] for the requirements).
 #[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct DelimitedIdRef<const N: usize> {
@@ -97,7 +105,7 @@ impl<const N: usize> DelimitedIdRef<N> {
         &self.inner
     }
 
-    /// Losslessly converts `string` into a [`NamespacedIdRef`], or returns [`Err`] if it is not a
+    /// Losslessly converts `string` into a [`DelimitedIdRef`], or returns [`Err`] if it is not a
     /// valid id.
     ///
     /// # Examples
@@ -126,7 +134,7 @@ impl<const N: usize> DelimitedIdRef<N> {
         Ok(Self::from_str_unchecked(string))
     }
 
-    /// Converts `string` into a [`NamespacedIdRef`] without checking if it is a valid id.
+    /// Converts `string` into a [`DelimitedIdRef`] without checking if it is a valid id.
     ///
     /// Note that this may cause panics down the line if the id is not valid, but it won't cause
     /// any undefined behavior.
@@ -142,7 +150,7 @@ impl<const N: usize> DelimitedIdRef<N> {
     /// ```
     #[must_use]
     pub const fn from_str_unchecked(string: &str) -> &Self {
-        // SAFETY: NamespacedIdRef is #[repr(transparent)]
+        // SAFETY: DelimitedIdRef is #[repr(transparent)]
         // NOTE: safety is not upheld by caller - this is always safe
         unsafe { &*(std::ptr::from_ref(string) as *const Self) }
     }
@@ -167,6 +175,43 @@ impl<const N: usize> DelimitedIdRef<N> {
         indicies[array_index] = i;
         indicies
     }
+
+    /// Returns an array of all components of this id, in order, without any delimiters.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::op_ident;
+    ///
+    /// let id = op_ident!("namespace:id:operation");
+    /// assert_eq!(["namespace", "id", "operation"], id.components());
+    /// ```
+    #[must_use]
+    pub const fn components(&self) -> [&IdComponentRef; N] {
+        let mut components = [ident_component!(""); _];
+        if N == 0 {
+            return components;
+        }
+
+        let delimiter_indicies = self.delimiter_indicies();
+        components[0] = IdComponentRef::from_str_unchecked(substring_const(
+            self.as_str(),
+            0,
+            delimiter_indicies[0],
+        ));
+
+        let mut i = 0;
+        while i < N - 1 {
+            components[i + 1] = IdComponentRef::from_str_unchecked(substring_const(
+                self.as_str(),
+                delimiter_indicies[i] + 1,
+                delimiter_indicies[i + 1],
+            ));
+            i += 1;
+        }
+
+        components
+    }
 }
 
 impl<'a, const N: usize> TryFrom<&'a str> for &'a DelimitedIdRef<N> {
@@ -179,7 +224,7 @@ impl<'a, const N: usize> TryFrom<&'a str> for &'a DelimitedIdRef<N> {
 /// An id that is made up of `N` different components that are all separated by `:` delimiters.
 ///
 /// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
-/// [`NamespacedId`] (see [`validate`] for the requirements).
+/// [`DelimitedId`] (see [`validate`] for the requirements).
 #[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct DelimitedId<const N: usize> {
@@ -187,7 +232,7 @@ pub struct DelimitedId<const N: usize> {
 }
 
 impl<const N: usize> DelimitedId<N> {
-    /// Creates a new [`NamespacedId`] from a [`String`].
+    /// Creates a new [`DelimitedId`] from a [`String`].
     ///
     /// # Errors
     ///
@@ -197,7 +242,7 @@ impl<const N: usize> DelimitedId<N> {
         Ok(Self::from_box_unchecked(string.into_boxed_str()))
     }
 
-    /// Creates a new [`NamespacedId`] from a [`Box<str>`].
+    /// Creates a new [`DelimitedId`] from a [`Box<str>`].
     ///
     /// # Errors
     ///
@@ -207,7 +252,7 @@ impl<const N: usize> DelimitedId<N> {
         Ok(Self::from_box_unchecked(string))
     }
 
-    /// Creates a new [`NamespacedId`] by allocating a [`&str`].
+    /// Creates a new [`DelimitedId`] by allocating a [`&str`].
     ///
     /// # Errors
     ///
@@ -217,7 +262,7 @@ impl<const N: usize> DelimitedId<N> {
         Ok(Self::from_box_unchecked(Box::<str>::from(string)))
     }
 
-    /// Converts `string` into a [`NamespacedIdRef`] without checking if it is a valid id.
+    /// Converts `string` into a [`DelimitedId`] without checking if it is a valid id.
     ///
     /// Note that this may cause panics down the line if the id is not valid, but it won't cause
     /// any undefined behavior.
@@ -285,6 +330,12 @@ impl<const N: usize> Deref for DelimitedId<N> {
 
 impl<const N: usize> Borrow<DelimitedIdRef<N>> for DelimitedId<N> {
     fn borrow(&self) -> &DelimitedIdRef<N> {
+        &self.inner
+    }
+}
+
+impl<const N: usize> AsRef<DelimitedIdRef<N>> for DelimitedId<N> {
+    fn as_ref(&self) -> &DelimitedIdRef<N> {
         &self.inner
     }
 }
@@ -424,10 +475,7 @@ impl<const N: usize> Visitor<'_> for DelimitedIdVisitor<N> {
     type Value = DelimitedId<N>;
 
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "a namespaced id string in the form of '<namespace>:<id>'"
-        )
+        write!(f, "a delimited id string literal")
     }
 
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -453,12 +501,23 @@ impl Debug for IdComponentRef {
 /// An owned component of a [`NamespacedId`] or [`OperationId`] (without delimiters).
 ///
 /// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
-/// [`NamespacedId`] (see [`validate`] for the requirements).
+/// [`IdComponent`] (see [`validate`] for the requirements).
 pub type IdComponent = DelimitedId<1>;
 
 impl Debug for IdComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "*ident_component!(\"{}\")", &self.as_str())
+    }
+}
+
+// id component concatenation
+
+impl<'a> Add<&'a IdComponentRef> for &IdComponentRef {
+    type Output = IdComponent;
+    fn add(self, rhs: &'a IdComponentRef) -> Self::Output {
+        let combined = self.as_str().to_string() + rhs.as_str();
+        let boxed = combined.into_boxed_str();
+        IdComponent::from_box_unchecked(boxed)
     }
 }
 
