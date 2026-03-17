@@ -1,3 +1,58 @@
+//! A crate that defines types that identify data in a human-readable way.
+//!
+//! The most common example is the [`NamespacedId`], which consists of a namespace and path
+//! separated by a colon (ex: `namespace:path`). This leads to an id that is somewhat resistant to
+//! collisions, but is still human-readable.
+//!
+//! All ids are based on a [`DelimitedId`], which is a generic id with a constant number of
+//! components separated by colons. It is a wrapper over a [`Box<str>`], ensuring that its interior
+//! is a valid id. Every id also has a corresponding wrapper over a [`str`], backed by a
+//! [`DelimitedIdRef`]. As both are wrappers over `Box<str>` and `str` respectively, they can be
+//! losslessly converted between the two without having to allocate.
+//!
+//! There are three main id types:
+//! - [`IdComponent`] (ex: `component`)
+//!     - Used to ensure that the backing string is valid as a single component of a larger id
+//!       (no separators or invalid characters).
+//! - [`NamespacedId`] (ex: `namespace:path`)
+//!     - Used to identify different objects.
+//! - [`OperationId`] (ex: `namespace:path:operation`)
+//!     - Used to identify operations that refer to a specific identified object.
+//!
+//! Each main id type also has a corresponding macro to generate and validate a static reference at
+//! compile time.
+//! - `IdComponent` has [`ident_component!`]
+//! - `NamespacedId` has [`ident!`]
+//! - `OperationId` has [`op_ident!`]
+//!
+//! # Examples
+//!
+//! ```
+//! use namespaced_id::ident;
+//!
+//! let id = ident!("namespace:path");
+//! assert_eq!("namespace", id.namespace());
+//! assert_eq!("path", id.path());
+//! ```
+//!
+//! ```
+//! use namespaced_id::NamespacedIdRef;
+//!
+//! let runtime_str = "other:id";
+//! let id = NamespacedIdRef::new(runtime_str)
+//!     .expect("runtime_str is a valid id");
+//!
+//! assert_eq!("other", id.namespace());
+//! assert_eq!("id", id.path());
+//! ```
+//!
+//! # Origin
+//!
+//! The original idea for this library came from Minecraft's namespaced id, which is very very
+//! similar. The game uses it for everything, and I came to like it a lot as I used it, so I made
+//! this library to use it in my projects. Notice that it isn't a fully faithful reproduction,
+//! though, as this library allows `/` characters in the namespace.
+
 use std::{
     borrow::Borrow,
     fmt::{Debug, Display},
@@ -15,7 +70,6 @@ const fn substring_const(string: &str, start: usize, end: usize) -> &str {
 
 pub use namespaced_id_core::validate;
 
-/// An error encountered while converting a string into a [`DelimitedId`].
 pub use namespaced_id_core::ParseError;
 
 /// Returns a [`&'static NamespacedIdRef`](NamespacedIdRef) of the given namespaced id string
@@ -25,8 +79,8 @@ pub use namespaced_id_core::ParseError;
 ///
 /// ```
 /// use namespaced_id::ident;
-/// let id = ident!("namespace:id");
-/// assert_eq!("namespace:id", id.as_str());
+/// let id = ident!("namespace:path");
+/// assert_eq!("namespace:path", id.as_str());
 /// ```
 ///
 /// Compilation fails if the identifier is not a valid [`NamespacedId`].
@@ -34,6 +88,14 @@ pub use namespaced_id_core::ParseError;
 /// ```compile_fail
 /// namespaced_id::ident!("invalid_id");
 /// ```
+#[cfg(doc)]
+#[macro_export]
+macro_rules! ident {
+    ($str:literal) => {
+        todo!()
+    };
+}
+#[cfg(not(doc))]
 pub use namespaced_id_macros::ident;
 
 /// Returns a [`&'static OperationIdRef`](OperationIdRef) of the given operation id string
@@ -43,8 +105,8 @@ pub use namespaced_id_macros::ident;
 ///
 /// ```
 /// use namespaced_id::op_ident;
-/// let id = op_ident!("namespace:id:operation");
-/// assert_eq!("namespace:id:operation", id.as_str());
+/// let id = op_ident!("namespace:path:operation");
+/// assert_eq!("namespace:path:operation", id.as_str());
 /// ```
 ///
 /// Compilation fails if the identifier is not a valid [`OperationId`].
@@ -56,6 +118,14 @@ pub use namespaced_id_macros::ident;
 /// ```compile_fail
 /// namespaced_id::op_ident!("invalid:id");
 /// ```
+#[cfg(doc)]
+#[macro_export]
+macro_rules! op_ident {
+    ($str:literal) => {
+        todo!()
+    };
+}
+#[cfg(not(doc))]
 pub use namespaced_id_macros::op_ident;
 
 /// Returns a [`&'static IdComponentRef`](IdComponentRef) of the given id component string literal.
@@ -77,6 +147,14 @@ pub use namespaced_id_macros::op_ident;
 /// ```compile_fail
 /// namespaced_id::op_ident!("invalid id");
 /// ```
+#[cfg(doc)]
+#[macro_export]
+macro_rules! ident_component {
+    ($str:literal) => {
+        todo!()
+    };
+}
+#[cfg(not(doc))]
 pub use namespaced_id_macros::ident_component;
 
 /// A reference to a [`DelimitedId`], akin to a `str`.
@@ -97,12 +175,46 @@ impl<const N: usize> DelimitedIdRef<N> {
     /// ```
     /// use namespaced_id::ident;
     ///
-    /// let id = ident!("namespace:id");
-    /// assert_eq!("namespace:id", id.as_str());
+    /// let id = ident!("namespace:path");
+    /// assert_eq!("namespace:path", id.as_str());
     /// ```
     #[must_use]
     pub const fn as_str(&self) -> &str {
         &self.inner
+    }
+
+    /// Returns an array of all components of this id, in order, without any delimiters.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use namespaced_id::op_ident;
+    ///
+    /// let id = op_ident!("namespace:path:operation");
+    /// assert_eq!(["namespace", "path", "operation"], id.components());
+    /// ```
+    #[must_use]
+    pub const fn components(&self) -> [&IdComponentRef; N] {
+        let mut components = [ident_component!(""); _];
+        if N == 0 {
+            return components;
+        }
+
+        let end_indicies = self.component_end_indicies();
+        components[0] =
+            IdComponentRef::from_str_unchecked(substring_const(self.as_str(), 0, end_indicies[0]));
+
+        let mut i = 1;
+        while i < N {
+            components[i] = IdComponentRef::from_str_unchecked(substring_const(
+                self.as_str(),
+                end_indicies[i - 1] + 1,
+                end_indicies[i],
+            ));
+            i += 1;
+        }
+
+        components
     }
 
     /// Losslessly converts `string` into a [`DelimitedIdRef`], or returns [`Err`] if it is not a
@@ -113,9 +225,9 @@ impl<const N: usize> DelimitedIdRef<N> {
     /// ```
     /// use namespaced_id::NamespacedIdRef;
     ///
-    /// let id = NamespacedIdRef::new("namespace:id")
+    /// let id = NamespacedIdRef::new("namespace:path")
     ///     .expect("id should be valid");
-    /// assert_eq!("namespace:id", id.as_str());
+    /// assert_eq!("namespace:path", id.as_str());
     ///
     /// let id_res = NamespacedIdRef::new("invalid_id");
     /// assert!(id_res.is_err());
@@ -146,7 +258,7 @@ impl<const N: usize> DelimitedIdRef<N> {
     ///
     /// let id = NamespacedIdRef::from_str_unchecked("invalid_id");
     /// // Panics here, as `id` is invalid (and so it doesn't have an id).
-    /// let _ = id.id();
+    /// let _ = id.path();
     /// ```
     #[must_use]
     pub const fn from_str_unchecked(string: &str) -> &Self {
@@ -155,8 +267,11 @@ impl<const N: usize> DelimitedIdRef<N> {
         unsafe { &*(std::ptr::from_ref(string) as *const Self) }
     }
 
-    const fn delimiter_indicies(&self) -> [usize; N] {
+    const fn component_end_indicies(&self) -> [usize; N] {
         let mut indicies = [0; _];
+        if N == 0 {
+            return indicies;
+        }
 
         let mut i = 0;
         let mut array_index = 0;
@@ -174,43 +289,6 @@ impl<const N: usize> DelimitedIdRef<N> {
 
         indicies[array_index] = i;
         indicies
-    }
-
-    /// Returns an array of all components of this id, in order, without any delimiters.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use namespaced_id::op_ident;
-    ///
-    /// let id = op_ident!("namespace:id:operation");
-    /// assert_eq!(["namespace", "id", "operation"], id.components());
-    /// ```
-    #[must_use]
-    pub const fn components(&self) -> [&IdComponentRef; N] {
-        let mut components = [ident_component!(""); _];
-        if N == 0 {
-            return components;
-        }
-
-        let delimiter_indicies = self.delimiter_indicies();
-        components[0] = IdComponentRef::from_str_unchecked(substring_const(
-            self.as_str(),
-            0,
-            delimiter_indicies[0],
-        ));
-
-        let mut i = 0;
-        while i < N - 1 {
-            components[i + 1] = IdComponentRef::from_str_unchecked(substring_const(
-                self.as_str(),
-                delimiter_indicies[i] + 1,
-                delimiter_indicies[i + 1],
-            ));
-            i += 1;
-        }
-
-        components
     }
 }
 
@@ -512,6 +590,9 @@ impl Debug for IdComponent {
 
 // id component concatenation
 
+/// Implements addition for [`IdComponentRef`]s through concatenation.
+///
+/// This always works, as both sides are valid id components without separators.
 impl<'a> Add<&'a IdComponentRef> for &IdComponentRef {
     type Output = IdComponent;
     fn add(self, rhs: &'a IdComponentRef) -> Self::Output {
@@ -535,7 +616,7 @@ impl NamespacedIdRef {
     /// ```
     /// use namespaced_id::ident;
     ///
-    /// assert_eq!("namespace", ident!("namespace:id").namespace());
+    /// assert_eq!("namespace", ident!("namespace:path").namespace());
     /// ```
     #[must_use]
     pub const fn namespace(&self) -> &IdComponentRef {
@@ -551,17 +632,17 @@ impl NamespacedIdRef {
     /// ```
     /// use namespaced_id::ident;
     ///
-    /// assert_eq!("id", ident!("namespace:id").id());
+    /// assert_eq!("path", ident!("namespace:path").path());
     /// ```
     #[must_use]
-    pub const fn id(&self) -> &IdComponentRef {
+    pub const fn path(&self) -> &IdComponentRef {
         let namespace_len = self.namespace_len();
         let (_, id) = self.inner.split_at(namespace_len + 1);
         IdComponentRef::from_str_unchecked(id)
     }
 
     const fn namespace_len(&self) -> usize {
-        let [namespace_len, _] = self.delimiter_indicies();
+        let [namespace_len, _] = self.component_end_indicies();
         namespace_len
     }
 }
@@ -579,19 +660,19 @@ impl Debug for NamespacedIdRef {
 pub type NamespacedId = DelimitedId<2>;
 
 impl NamespacedId {
-    /// Creates a new [`NamespacedId`] from a separated `namespace` and `id`.
+    /// Creates a new [`NamespacedId`] from a separated `namespace` and `path`.
     ///
     /// # Examples
     ///
     /// ```
     /// use namespaced_id::{NamespacedId, ident_component};
     ///
-    /// let id = NamespacedId::new(ident_component!("namespace"), ident_component!("id"));
-    /// assert_eq!("namespace:id", id.as_str());
+    /// let id = NamespacedId::new(ident_component!("namespace"), ident_component!("path"));
+    /// assert_eq!("namespace:path", id.as_str());
     /// ```
     #[must_use]
-    pub fn new(namespace: &IdComponentRef, id: &IdComponentRef) -> Self {
-        let string = format!("{namespace}:{id}");
+    pub fn new(namespace: &IdComponentRef, path: &IdComponentRef) -> Self {
+        let string = format!("{namespace}:{path}");
         let boxed = Box::<str>::from(string);
         Self::from_box_unchecked(boxed)
     }
@@ -617,11 +698,11 @@ impl OperationIdRef {
     /// ```
     /// use namespaced_id::{op_ident, ident};
     ///
-    /// assert_eq!(ident!("namespace:id"), op_ident!("namespace:id:operation").namespaced_id());
+    /// assert_eq!(ident!("namespace:path"), op_ident!("namespace:path:operation").namespaced_id());
     /// ```
     #[must_use]
     pub const fn namespaced_id(&self) -> &NamespacedIdRef {
-        let [_, second_colon, _] = self.delimiter_indicies();
+        let [_, second_colon, _] = self.component_end_indicies();
         let (namespaced_id, _) = self.inner.split_at(second_colon);
         NamespacedIdRef::from_str_unchecked(namespaced_id)
     }
@@ -633,25 +714,25 @@ impl OperationIdRef {
     /// ```
     /// use namespaced_id::op_ident;
     ///
-    /// assert_eq!("namespace", op_ident!("namespace:id:operation").namespace());
+    /// assert_eq!("namespace", op_ident!("namespace:path:operation").namespace());
     /// ```
     #[must_use]
     pub const fn namespace(&self) -> &IdComponentRef {
         self.namespaced_id().namespace()
     }
 
-    /// Returns the second component of the id - the id.
+    /// Returns the second component of the id - the path.
     ///
     /// # Examples
     ///
     /// ```
     /// use namespaced_id::op_ident;
     ///
-    /// assert_eq!("id", op_ident!("namespace:id:operation").id());
+    /// assert_eq!("path", op_ident!("namespace:path:operation").path());
     /// ```
     #[must_use]
-    pub const fn id(&self) -> &IdComponentRef {
-        self.namespaced_id().id()
+    pub const fn path(&self) -> &IdComponentRef {
+        self.namespaced_id().path()
     }
 
     /// Returns the third component of the id - the operation.
@@ -661,11 +742,11 @@ impl OperationIdRef {
     /// ```
     /// use namespaced_id::op_ident;
     ///
-    /// assert_eq!("operation", op_ident!("namespace:id:operation").operation());
+    /// assert_eq!("operation", op_ident!("namespace:path:operation").operation());
     /// ```
     #[must_use]
     pub const fn operation(&self) -> &IdComponentRef {
-        let [_, second_colon, _] = self.delimiter_indicies();
+        let [_, second_colon, _] = self.component_end_indicies();
         let (_, operation) = self.inner.split_at(second_colon + 1);
         IdComponentRef::from_str_unchecked(operation)
     }
@@ -684,7 +765,7 @@ impl Debug for OperationIdRef {
 pub type OperationId = DelimitedId<3>;
 
 impl OperationId {
-    /// Creates a new [`OperationId`] from a separated `namespace`, `id`, and `operation`.
+    /// Creates a new [`OperationId`] from a separated `namespace`, `path`, and `operation`.
     ///
     /// # Examples
     ///
@@ -693,18 +774,18 @@ impl OperationId {
     ///
     /// let id = OperationId::new(
     ///     ident_component!("namespace"),
-    ///     ident_component!("id"),
+    ///     ident_component!("path"),
     ///     ident_component!("operation"),
     /// );
-    /// assert_eq!("namespace:id:operation", id.as_str());
+    /// assert_eq!("namespace:path:operation", id.as_str());
     /// ```
     #[must_use]
     pub fn new(
         namespace: &IdComponentRef,
-        id: &IdComponentRef,
+        path: &IdComponentRef,
         operation: &IdComponentRef,
     ) -> Self {
-        let string = format!("{namespace}:{id}:{operation}");
+        let string = format!("{namespace}:{path}:{operation}");
         let boxed = Box::<str>::from(string);
         Self::from_box_unchecked(boxed)
     }
@@ -718,14 +799,16 @@ impl Debug for OperationId {
 
 #[cfg(test)]
 mod tests {
-    use crate as namespaced_id;
+    use namespaced_id_macros::ident_component;
+
+    use crate::{self as namespaced_id, DelimitedIdRef, NamespacedId};
     use crate::{NamespacedIdRef, ParseError, ident};
 
     #[test]
     fn roundtrip_check() {
         assert_eq!(
-            Ok("namespace:id"),
-            NamespacedIdRef::new("namespace:id").map(NamespacedIdRef::as_str)
+            Ok("namespace:path"),
+            NamespacedIdRef::new("namespace:path").map(NamespacedIdRef::as_str)
         );
     }
 
@@ -756,19 +839,19 @@ mod tests {
     #[test]
     fn unexpected_whitespace_error() {
         assert_eq!(
-            Err(ParseError::UnexpectedWhitespace(4)),
-            NamespacedIdRef::new("name space:id")
+            Err(ParseError::UnexpectedCharacter(4)),
+            NamespacedIdRef::new("name space:path")
         );
     }
 
     #[test]
     fn extract_namespace() {
-        assert_eq!("namespace", ident!("namespace:id").namespace());
+        assert_eq!("namespace", ident!("namespace:path").namespace());
     }
 
     #[test]
     fn extract_id() {
-        assert_eq!("id", ident!("namespace:id").id());
+        assert_eq!("path", ident!("namespace:path").path());
     }
 
     #[test]
@@ -780,7 +863,7 @@ mod tests {
     #[test]
     #[should_panic = "incorrect separator count"]
     fn id_panics_without_separator() {
-        let _ = NamespacedIdRef::from_str_unchecked("no_separator").id();
+        let _ = NamespacedIdRef::from_str_unchecked("no_separator").path();
     }
 
     #[test]
@@ -788,7 +871,7 @@ mod tests {
         match NamespacedIdRef::new(":") {
             Ok(id) => {
                 assert_eq!("", id.namespace());
-                assert_eq!("", id.id());
+                assert_eq!("", id.path());
             }
             Err(err) => {
                 panic!("{err}");
@@ -798,6 +881,47 @@ mod tests {
 
     #[test]
     fn owned_roundtrip() {
-        assert_eq!("namespace:id", ident!("namespace:id").to_owned().as_str());
+        assert_eq!(
+            "namespace:path",
+            ident!("namespace:path").to_owned().as_str()
+        );
+    }
+
+    #[test]
+    fn components_identity() {
+        let id = ident_component!("ident");
+        let [component] = id.components();
+
+        assert_eq!(id, component);
+        assert_eq!("ident", component);
+    }
+
+    #[test]
+    fn concat() {
+        let id = ident!("namespace:path");
+
+        let [namespace, id] = id.components();
+        let id = id + ident_component!("_suffixed");
+        let id = NamespacedId::new(namespace, &id);
+
+        assert_eq!("namespace:path_suffixed", id);
+    }
+
+    #[test]
+    fn empty_id() {
+        let id = DelimitedIdRef::<0>::new("")
+            .expect("the empty string is a (and the only) valid DelimitedIdRef::<0>");
+
+        // make sure some operations don't panic
+        let [] = id.component_end_indicies();
+        let [] = id.components();
+        assert_eq!("", id.as_str());
+    }
+
+    #[test]
+    fn empty_id_fails() {
+        assert!(DelimitedIdRef::<0>::new("a").is_err());
+        assert!(DelimitedIdRef::<0>::new(":").is_err());
+        assert!(DelimitedIdRef::<0>::new(" ").is_err());
     }
 }
