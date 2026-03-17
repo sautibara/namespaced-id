@@ -17,6 +17,11 @@ fn gen_ident<const N: usize>(attr: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn ident_component(attr: TokenStream) -> TokenStream {
+    gen_ident::<1>(attr)
+}
+
+#[proc_macro]
 pub fn ident(attr: TokenStream) -> TokenStream {
     gen_ident::<2>(attr)
 }

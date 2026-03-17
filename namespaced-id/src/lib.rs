@@ -50,6 +50,27 @@ pub use namespaced_id_macros::ident;
 /// ```
 pub use namespaced_id_macros::op_ident;
 
+/// Returns a [`&'static IdComponentRef`](IdComponentRef) of the given id component string literal.
+///
+/// # Examples
+///
+/// ```
+/// use namespaced_id::ident_component;
+/// let id = ident_component!("namespace");
+/// assert_eq!("namespace", id.as_str());
+/// ```
+///
+/// Compilation fails if the identifier is not a valid [`IdComponent`].
+///
+/// ```compile_fail
+/// namespaced_id::op_ident!("invalid:id");
+/// ```
+///
+/// ```compile_fail
+/// namespaced_id::op_ident!("invalid id");
+/// ```
+pub use namespaced_id_macros::ident_component;
+
 /// A reference to a [`DelimitedId`], akin to a `str`.
 ///
 /// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
@@ -84,11 +105,11 @@ impl<const N: usize> DelimitedIdRef<N> {
     /// ```
     /// use namespaced_id::NamespacedIdRef;
     ///
-    /// let id = NamespacedIdRef::try_from_str("namespace:id")
+    /// let id = NamespacedIdRef::new("namespace:id")
     ///     .expect("id should be valid");
     /// assert_eq!("namespace:id", id.as_str());
     ///
-    /// let id_res = NamespacedIdRef::try_from_str("invalid_id");
+    /// let id_res = NamespacedIdRef::new("invalid_id");
     /// assert!(id_res.is_err());
     /// ```
     ///
@@ -97,7 +118,7 @@ impl<const N: usize> DelimitedIdRef<N> {
     /// - [`ParseError::UnexpectedComponentCount`] if `string` doesn't have two components
     ///   (one ':').
     /// - [`ParseError::UnexpectedWhitespace`] if `string` has any whitespace.
-    pub const fn try_from_str(string: &str) -> Result<&Self, ParseError<N>> {
+    pub const fn new(string: &str) -> Result<&Self, ParseError<N>> {
         if let Err(err) = validate(string) {
             return Err(err);
         }
@@ -151,7 +172,7 @@ impl<const N: usize> DelimitedIdRef<N> {
 impl<'a, const N: usize> TryFrom<&'a str> for &'a DelimitedIdRef<N> {
     type Error = ParseError<N>;
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        DelimitedIdRef::try_from_str(value)
+        DelimitedIdRef::new(value)
     }
 }
 
@@ -166,6 +187,16 @@ pub struct DelimitedId<const N: usize> {
 }
 
 impl<const N: usize> DelimitedId<N> {
+    /// Creates a new [`NamespacedId`] from a [`String`].
+    ///
+    /// # Errors
+    ///
+    /// - See [`validate`].
+    pub fn try_from_string(string: String) -> Result<Self, ParseError<N>> {
+        validate(&string)?;
+        Ok(Self::from_box_unchecked(string.into_boxed_str()))
+    }
+
     /// Creates a new [`NamespacedId`] from a [`Box<str>`].
     ///
     /// # Errors
@@ -407,6 +438,30 @@ impl<const N: usize> Visitor<'_> for DelimitedIdVisitor<N> {
     }
 }
 
+/// A reference to a [`IdComponent`], akin to a `str`.
+///
+/// This is identical to `str` in every way, except that it has the invariant of being a valid
+/// [`IdComponent`] (see [`validate`] for the requirements).
+pub type IdComponentRef = DelimitedIdRef<1>;
+
+impl Debug for IdComponentRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ident_component!(\"{}\")", &self.as_str())
+    }
+}
+
+/// An owned component of a [`NamespacedId`] or [`OperationId`] (without delimiters).
+///
+/// This is identical to `Box<str>` in every way, except that it has the invariant of being a valid
+/// [`NamespacedId`] (see [`validate`] for the requirements).
+pub type IdComponent = DelimitedId<1>;
+
+impl Debug for IdComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "*ident_component!(\"{}\")", &self.as_str())
+    }
+}
+
 /// A reference to a [`NamespacedId`], akin to a `str`.
 ///
 /// This is identical to `str` in every way, except that it has the invariant of being a valid
@@ -424,10 +479,10 @@ impl NamespacedIdRef {
     /// assert_eq!("namespace", ident!("namespace:id").namespace());
     /// ```
     #[must_use]
-    pub const fn namespace(&self) -> &str {
+    pub const fn namespace(&self) -> &IdComponentRef {
         let namespace_len = self.namespace_len();
         let (namespace, _) = self.inner.split_at(namespace_len);
-        namespace
+        IdComponentRef::from_str_unchecked(namespace)
     }
 
     /// Returns the portion of the id after the colon.
@@ -440,10 +495,10 @@ impl NamespacedIdRef {
     /// assert_eq!("id", ident!("namespace:id").id());
     /// ```
     #[must_use]
-    pub const fn id(&self) -> &str {
+    pub const fn id(&self) -> &IdComponentRef {
         let namespace_len = self.namespace_len();
         let (_, id) = self.inner.split_at(namespace_len + 1);
-        id
+        IdComponentRef::from_str_unchecked(id)
     }
 
     const fn namespace_len(&self) -> usize {
@@ -470,21 +525,16 @@ impl NamespacedId {
     /// # Examples
     ///
     /// ```
-    /// use namespaced_id::NamespacedId;
+    /// use namespaced_id::{NamespacedId, ident_component};
     ///
-    /// let id = NamespacedId::new("namespace", "id")
-    ///     .expect("id should be valid");
+    /// let id = NamespacedId::new(ident_component!("namespace"), ident_component!("id"));
     /// assert_eq!("namespace:id", id.as_str());
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// - [`ParseError::UnexpectedComponentCount`] if either component has a colon.
-    /// - [`ParseError::UnexpectedWhitespace`] if either component has whitespace.
-    pub fn new(namespace: &str, id: &str) -> Result<Self, ParseError<2>> {
+    #[must_use]
+    pub fn new(namespace: &IdComponentRef, id: &IdComponentRef) -> Self {
         let string = format!("{namespace}:{id}");
         let boxed = Box::<str>::from(string);
-        Self::try_from_box(boxed)
+        Self::from_box_unchecked(boxed)
     }
 }
 
@@ -527,7 +577,7 @@ impl OperationIdRef {
     /// assert_eq!("namespace", op_ident!("namespace:id:operation").namespace());
     /// ```
     #[must_use]
-    pub const fn namespace(&self) -> &str {
+    pub const fn namespace(&self) -> &IdComponentRef {
         self.namespaced_id().namespace()
     }
 
@@ -541,7 +591,7 @@ impl OperationIdRef {
     /// assert_eq!("id", op_ident!("namespace:id:operation").id());
     /// ```
     #[must_use]
-    pub const fn id(&self) -> &str {
+    pub const fn id(&self) -> &IdComponentRef {
         self.namespaced_id().id()
     }
 
@@ -555,10 +605,10 @@ impl OperationIdRef {
     /// assert_eq!("operation", op_ident!("namespace:id:operation").operation());
     /// ```
     #[must_use]
-    pub const fn operation(&self) -> &str {
+    pub const fn operation(&self) -> &IdComponentRef {
         let [_, second_colon, _] = self.delimiter_indicies();
         let (_, operation) = self.inner.split_at(second_colon + 1);
-        operation
+        IdComponentRef::from_str_unchecked(operation)
     }
 }
 
@@ -580,21 +630,24 @@ impl OperationId {
     /// # Examples
     ///
     /// ```
-    /// use namespaced_id::OperationId;
+    /// use namespaced_id::{OperationId, ident_component};
     ///
-    /// let id = OperationId::new("namespace", "id", "operation")
-    ///     .expect("id should be valid");
+    /// let id = OperationId::new(
+    ///     ident_component!("namespace"),
+    ///     ident_component!("id"),
+    ///     ident_component!("operation"),
+    /// );
     /// assert_eq!("namespace:id:operation", id.as_str());
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// - [`ParseError::UnexpectedComponentCount`] if either component has a colon.
-    /// - [`ParseError::UnexpectedWhitespace`] if either component has whitespace.
-    pub fn new(namespace: &str, id: &str, operation: &str) -> Result<Self, ParseError<3>> {
+    #[must_use]
+    pub fn new(
+        namespace: &IdComponentRef,
+        id: &IdComponentRef,
+        operation: &IdComponentRef,
+    ) -> Self {
         let string = format!("{namespace}:{id}:{operation}");
         let boxed = Box::<str>::from(string);
-        Self::try_from_box(boxed)
+        Self::from_box_unchecked(boxed)
     }
 }
 
@@ -607,13 +660,13 @@ impl Debug for OperationId {
 #[cfg(test)]
 mod tests {
     use crate as namespaced_id;
-    use crate::{NamespacedId, NamespacedIdRef, ParseError, ident};
+    use crate::{NamespacedIdRef, ParseError, ident};
 
     #[test]
     fn roundtrip_check() {
         assert_eq!(
             Ok("namespace:id"),
-            NamespacedIdRef::try_from_str("namespace:id").map(NamespacedIdRef::as_str)
+            NamespacedIdRef::new("namespace:id").map(NamespacedIdRef::as_str)
         );
     }
 
@@ -621,7 +674,7 @@ mod tests {
     fn expected_namespace_error() {
         assert_eq!(
             Err(ParseError::UnexpectedComponentCount(0)),
-            NamespacedIdRef::try_from_str("")
+            NamespacedIdRef::new("")
         );
     }
 
@@ -629,7 +682,7 @@ mod tests {
     fn expected_id_error() {
         assert_eq!(
             Err(ParseError::UnexpectedComponentCount(1)),
-            NamespacedIdRef::try_from_str("a")
+            NamespacedIdRef::new("a")
         );
     }
 
@@ -637,7 +690,7 @@ mod tests {
     fn too_many_separators_error() {
         assert_eq!(
             Err(ParseError::UnexpectedComponentCount(3)),
-            NamespacedIdRef::try_from_str("a:b:c")
+            NamespacedIdRef::new("a:b:c")
         );
     }
 
@@ -645,7 +698,7 @@ mod tests {
     fn unexpected_whitespace_error() {
         assert_eq!(
             Err(ParseError::UnexpectedWhitespace(4)),
-            NamespacedIdRef::try_from_str("name space:id")
+            NamespacedIdRef::new("name space:id")
         );
     }
 
@@ -673,7 +726,7 @@ mod tests {
 
     #[test]
     fn empty_namespace_and_id() {
-        match NamespacedIdRef::try_from_str(":") {
+        match NamespacedIdRef::new(":") {
             Ok(id) => {
                 assert_eq!("", id.namespace());
                 assert_eq!("", id.id());
@@ -687,17 +740,5 @@ mod tests {
     #[test]
     fn owned_roundtrip() {
         assert_eq!("namespace:id", ident!("namespace:id").to_owned().as_str());
-    }
-
-    #[test]
-    fn try_new() {
-        match NamespacedId::new("namespace", "id") {
-            Ok(id) => {
-                assert_eq!("namespace:id", id);
-            }
-            Err(err) => {
-                panic!("{err}");
-            }
-        }
     }
 }
