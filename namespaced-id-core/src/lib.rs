@@ -22,9 +22,7 @@ pub const fn validate<const N: usize>(string: &str) -> Result<(), ParseError<N>>
         let byte = string.as_bytes()[i];
         if byte == b':' {
             separators_found += 1;
-        } else if is_valid_byte(byte) {
-            continue;
-        } else {
+        } else if !is_valid_byte(byte) {
             return Err(ParseError::UnexpectedCharacter(i));
         }
 
