@@ -527,7 +527,7 @@ mod cmp_impls {
 }
 
 #[cfg(feature = "serde")]
-impl<const N: usize> Serialize for DelimitedId<N> {
+impl<const N: usize> serde::Serialize for DelimitedId<N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -537,7 +537,7 @@ impl<const N: usize> Serialize for DelimitedId<N> {
 }
 
 #[cfg(feature = "serde")]
-impl<'de, const N: usize> Deserialize<'de> for DelimitedId<N> {
+impl<'de, const N: usize> serde::Deserialize<'de> for DelimitedId<N> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -549,7 +549,7 @@ impl<'de, const N: usize> Deserialize<'de> for DelimitedId<N> {
 #[cfg(feature = "serde")]
 struct DelimitedIdVisitor<const N: usize>;
 #[cfg(feature = "serde")]
-impl<const N: usize> Visitor<'_> for DelimitedIdVisitor<N> {
+impl<const N: usize> serde::de::Visitor<'_> for DelimitedIdVisitor<N> {
     type Value = DelimitedId<N>;
 
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -560,7 +560,7 @@ impl<const N: usize> Visitor<'_> for DelimitedIdVisitor<N> {
     where
         E: serde::de::Error,
     {
-        v.parse().map_err(de::Error::custom)
+        v.parse().map_err(serde::de::Error::custom)
     }
 }
 
