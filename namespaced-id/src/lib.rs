@@ -58,6 +58,7 @@ use std::{
     fmt::{Debug, Display},
     ops::{Add, Deref},
     str::FromStr,
+    sync::Arc,
 };
 
 use self as namespaced_id;
@@ -383,6 +384,24 @@ impl<const N: usize> FromStr for DelimitedId<N> {
     }
 }
 
+/// An id that is made up of `N` different components that are all separated by `:` delimiters.
+///
+/// This is identical to `Arc<str>` in every way, except that it has the invariant of being a valid
+/// [`DelimitedId`] (see [`validate`] for the requirements).
+#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[repr(transparent)]
+pub struct ArcDelimitedId<const N: usize> {
+    inner: Arc<DelimitedIdRef<N>>,
+}
+
+impl<const N: usize> From<DelimitedId<N>> for ArcDelimitedId<N> {
+    fn from(value: DelimitedId<N>) -> Self {
+        Self {
+            inner: Arc::from(value.inner),
+        }
+    }
+}
+
 // display impls
 
 impl<const N: usize> Display for DelimitedIdRef<N> {
@@ -392,6 +411,12 @@ impl<const N: usize> Display for DelimitedIdRef<N> {
 }
 
 impl<const N: usize> Display for DelimitedId<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.inner)
+    }
+}
+
+impl<const N: usize> Display for ArcDelimitedId<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.inner)
     }
@@ -413,6 +438,25 @@ impl<const N: usize> Borrow<DelimitedIdRef<N>> for DelimitedId<N> {
 }
 
 impl<const N: usize> AsRef<DelimitedIdRef<N>> for DelimitedId<N> {
+    fn as_ref(&self) -> &DelimitedIdRef<N> {
+        &self.inner
+    }
+}
+
+impl<const N: usize> Deref for ArcDelimitedId<N> {
+    type Target = DelimitedIdRef<N>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<const N: usize> Borrow<DelimitedIdRef<N>> for ArcDelimitedId<N> {
+    fn borrow(&self) -> &DelimitedIdRef<N> {
+        &self.inner
+    }
+}
+
+impl<const N: usize> AsRef<DelimitedIdRef<N>> for ArcDelimitedId<N> {
     fn as_ref(&self) -> &DelimitedIdRef<N> {
         &self.inner
     }
@@ -458,6 +502,18 @@ impl<const N: usize> Borrow<str> for DelimitedId<N> {
 }
 
 impl<const N: usize> AsRef<str> for DelimitedId<N> {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<const N: usize> Borrow<str> for ArcDelimitedId<N> {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<const N: usize> AsRef<str> for ArcDelimitedId<N> {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
@@ -584,7 +640,15 @@ pub type IdComponent = DelimitedId<1>;
 
 impl Debug for IdComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "*ident_component!(\"{}\")", &self.as_str())
+        write!(f, "Box(ident_component!(\"{}\"))", &self.as_str())
+    }
+}
+
+pub type ArcIdComponent = ArcDelimitedId<1>;
+
+impl Debug for ArcIdComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Arc(ident_component!(\"{}\"))", &self.as_str())
     }
 }
 
@@ -680,7 +744,14 @@ impl NamespacedId {
 
 impl Debug for NamespacedId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "*ident!(\"{}\")", &self.as_str())
+        write!(f, "Box(ident!(\"{}\"))", &self.as_str())
+    }
+}
+
+pub type ArcNamespacedId = ArcDelimitedId<2>;
+impl Debug for ArcNamespacedId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Arc(ident!(\"{}\"))", &self.as_str())
     }
 }
 
@@ -793,7 +864,15 @@ impl OperationId {
 
 impl Debug for OperationId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "*op_ident!(\"{}\")", &self.as_str())
+        write!(f, "Box(op_ident!(\"{}\"))", &self.as_str())
+    }
+}
+
+pub type ArcOperationId = ArcDelimitedId<3>;
+
+impl Debug for ArcOperationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Arc(op_ident!(\"{}\"))", &self.as_str())
     }
 }
 
