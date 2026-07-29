@@ -412,13 +412,13 @@ impl<const N: usize> Display for DelimitedIdRef<N> {
 
 impl<const N: usize> Display for DelimitedId<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.inner)
+        write!(f, "{}", self.inner)
     }
 }
 
 impl<const N: usize> Display for ArcDelimitedId<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.inner)
+        write!(f, "{}", self.inner)
     }
 }
 
@@ -620,6 +620,46 @@ impl<const N: usize> serde::de::Visitor<'_> for DelimitedIdVisitor<N> {
     }
 }
 
+#[cfg(feature = "serde")]
+impl<const N: usize> serde::Serialize for ArcDelimitedId<N> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, const N: usize> serde::Deserialize<'de> for ArcDelimitedId<N> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(ArcDelimitedIdVisitor::<N>)
+    }
+}
+
+#[cfg(feature = "serde")]
+struct ArcDelimitedIdVisitor<const N: usize>;
+#[cfg(feature = "serde")]
+impl<const N: usize> serde::de::Visitor<'_> for ArcDelimitedIdVisitor<N> {
+    type Value = ArcDelimitedId<N>;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "a delimited id string literal")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        v.parse::<DelimitedId<N>>()
+            .map(Into::into)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 /// A reference to a [`IdComponent`], akin to a `str`.
 ///
 /// This is identical to `str` in every way, except that it has the invariant of being a valid
@@ -628,7 +668,7 @@ pub type IdComponentRef = DelimitedIdRef<1>;
 
 impl Debug for IdComponentRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ident_component!(\"{}\")", &self.as_str())
+        write!(f, "ident_component!(\"{}\")", self.as_str())
     }
 }
 
@@ -640,7 +680,7 @@ pub type IdComponent = DelimitedId<1>;
 
 impl Debug for IdComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Box(ident_component!(\"{}\"))", &self.as_str())
+        write!(f, "Box(ident_component!(\"{}\"))", self.as_str())
     }
 }
 
@@ -648,7 +688,7 @@ pub type ArcIdComponent = ArcDelimitedId<1>;
 
 impl Debug for ArcIdComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Arc(ident_component!(\"{}\"))", &self.as_str())
+        write!(f, "Arc(ident_component!(\"{}\"))", self.as_str())
     }
 }
 
@@ -713,7 +753,7 @@ impl NamespacedIdRef {
 
 impl Debug for NamespacedIdRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ident!(\"{}\")", &self.as_str())
+        write!(f, "ident!(\"{}\")", self.as_str())
     }
 }
 
@@ -744,14 +784,14 @@ impl NamespacedId {
 
 impl Debug for NamespacedId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Box(ident!(\"{}\"))", &self.as_str())
+        write!(f, "Box(ident!(\"{}\"))", self.as_str())
     }
 }
 
 pub type ArcNamespacedId = ArcDelimitedId<2>;
 impl Debug for ArcNamespacedId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Arc(ident!(\"{}\"))", &self.as_str())
+        write!(f, "Arc(ident!(\"{}\"))", self.as_str())
     }
 }
 
@@ -825,7 +865,7 @@ impl OperationIdRef {
 
 impl Debug for OperationIdRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "op_ident!(\"{}\")", &self.as_str())
+        write!(f, "op_ident!(\"{}\")", self.as_str())
     }
 }
 
@@ -864,7 +904,7 @@ impl OperationId {
 
 impl Debug for OperationId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Box(op_ident!(\"{}\"))", &self.as_str())
+        write!(f, "Box(op_ident!(\"{}\"))", self.as_str())
     }
 }
 
@@ -872,7 +912,7 @@ pub type ArcOperationId = ArcDelimitedId<3>;
 
 impl Debug for ArcOperationId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Arc(op_ident!(\"{}\"))", &self.as_str())
+        write!(f, "Arc(op_ident!(\"{}\"))", self.as_str())
     }
 }
 
