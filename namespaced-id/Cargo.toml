@@ -2,6 +2,10 @@
 name = "namespaced-id"
 version = "0.1.0"
 edition = "2024"
+description = "Human-readable identifiers"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/sautibara/namespaced-id"
+readme = "README.md"
 
 [dependencies]
 namespaced-id-core = { version = "0.1.0", path = "../namespaced-id-core" }

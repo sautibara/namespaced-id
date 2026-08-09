@@ -1,4 +1,4 @@
-//! Things that are used in both the `namespaced-id` and `namespaced-id-macros` crates.
+#![doc = include_str!("../README.md")]
 
 use thiserror::Error;
 

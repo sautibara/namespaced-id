@@ -1,4 +1,4 @@
-//! Procedural macros for the `namespaced-id` crate.
+#![doc = include_str!("../README.md")]
 
 use proc_macro::TokenStream;
 use quote::quote;
