@@ -1,6 +1,6 @@
 [package]
 name = "namespaced-id-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Utilities for the namespaced-id crate"
 license = "GPL-3.0-or-later"
