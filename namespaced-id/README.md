@@ -27,7 +27,7 @@ compile time.
 
 # Examples
 
-```
+```rust
 use namespaced_id::ident;
 
 let id = ident!("namespace:path");
@@ -35,7 +35,7 @@ assert_eq!("namespace", id.namespace());
 assert_eq!("path", id.path());
 ```
 
-```
+```rust
 use namespaced_id::NamespacedIdRef;
 
 let runtime_str = "other:id";
