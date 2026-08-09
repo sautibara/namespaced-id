@@ -1,3 +1,5 @@
+# Namespaced Id
+
 A crate that defines types that identify data in a human-readable way.
 
 The most common example is the [`NamespacedId`], which consists of a namespace and path
@@ -25,7 +27,7 @@ compile time.
 - `NamespacedId` has [`ident!`]
 - `OperationId` has [`op_ident!`]
 
-# Examples
+## Examples
 
 ```rust
 use namespaced_id::ident;
@@ -46,7 +48,7 @@ assert_eq!("other", id.namespace());
 assert_eq!("id", id.path());
 ```
 
-# Origin
+## Origin
 
 The original idea for this library came from Minecraft's namespaced id, which is very very
 similar. The game uses it for everything, and I came to like it a lot as I used it, so I made
