@@ -1,5 +1,9 @@
 # Namespaced Id
 
+[![crates.io](https://img.shields.io/crates/v/namespaced-id.svg)](https://crates.io/crates/namespaced-id)
+[![docs.rs](https://docs.rs/namespaced-id/badge.svg)](https://docs.rs/namespaced-id)
+[![License](https://img.shields.io/crates/l/namespaced-id)](https://github.com/sautibara/namespaced-id)
+
 A crate that defines types that identify data in a human-readable way.
 
 The most common example is the [`NamespacedId`], which consists of a namespace and path
